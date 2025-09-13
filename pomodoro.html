@@ -165,6 +165,13 @@
             border-color: #3498db;
         }
 
+        .setting-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            margin: 0;
+        }
+
         .progress-bar {
             width: 100%;
             height: 4px;
@@ -229,7 +236,7 @@
         </div>
         
         <div class="pomodoro-count" id="pomodoroCount">
-            Pomodoros completed: 0
+            Pomodoros completed - Today: 0 | Lifetime: 0
         </div>
         
         <div class="controls">
@@ -253,6 +260,10 @@
                 <label for="longBreakDuration">Long Break:</label>
                 <input type="number" id="longBreakDuration" min="1" max="60" value="15">
             </div>
+            <div class="setting-group">
+                <label for="enableNotifications">Enable Notifications:</label>
+                <input type="checkbox" id="enableNotifications" checked>
+            </div>
         </div>
     </div>
 
@@ -263,6 +274,7 @@
                 this.isPaused = false;
                 this.currentPhase = 'work';
                 this.pomodoroCount = 0;
+                this.lifetimePomodoroCount = 0;
                 this.cycleCount = 0;
                 this.timeLeft = 0;
                 this.totalTime = 0;
@@ -279,11 +291,16 @@
                 this.shortBreakDuration = settings.shortBreakDuration || 5;
                 this.longBreakDuration = settings.longBreakDuration || 15;
                 this.pomodoroCount = settings.pomodoroCount || 0;
+                this.lifetimePomodoroCount = settings.lifetimePomodoroCount || 0;
+                this.notificationsEnabled = settings.notificationsEnabled !== undefined ? settings.notificationsEnabled : true;
+                this.lastResetDate = settings.lastResetDate || '';
                 
                 document.getElementById('workDuration').value = this.workDuration;
                 document.getElementById('shortBreakDuration').value = this.shortBreakDuration;
                 document.getElementById('longBreakDuration').value = this.longBreakDuration;
+                document.getElementById('enableNotifications').checked = this.notificationsEnabled;
                 
+                this.checkAndResetDailyCounter();
                 this.resetToWorkPhase();
             }
             
@@ -292,7 +309,10 @@
                     workDuration: this.workDuration,
                     shortBreakDuration: this.shortBreakDuration,
                     longBreakDuration: this.longBreakDuration,
-                    pomodoroCount: this.pomodoroCount
+                    pomodoroCount: this.pomodoroCount,
+                    lifetimePomodoroCount: this.lifetimePomodoroCount,
+                    notificationsEnabled: this.notificationsEnabled,
+                    lastResetDate: this.lastResetDate
                 };
                 localStorage.setItem('pomodoroSettings', JSON.stringify(settings));
             }
@@ -308,6 +328,30 @@
                         }
                     });
                 });
+                
+                document.getElementById('enableNotifications').addEventListener('change', (e) => {
+                    this.notificationsEnabled = e.target.checked;
+                    if (this.notificationsEnabled && Notification && Notification.permission === 'default') {
+                        Notification.requestPermission().then(permission => {
+                            if (permission !== 'granted') {
+                                this.notificationsEnabled = false;
+                                e.target.checked = false;
+                            }
+                            this.saveSettings();
+                        });
+                    } else {
+                        this.saveSettings();
+                    }
+                });
+            }
+            
+            checkAndResetDailyCounter() {
+                const today = new Date().toLocaleDateString();
+                if (this.lastResetDate !== today) {
+                    this.pomodoroCount = 0;
+                    this.lastResetDate = today;
+                    this.saveSettings();
+                }
             }
             
             resetToWorkPhase() {
@@ -334,7 +378,7 @@
                 const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
                 
                 document.getElementById('timerDisplay').textContent = timeString;
-                document.getElementById('pomodoroCount').textContent = `Pomodoros completed: ${this.pomodoroCount}`;
+                document.getElementById('pomodoroCount').textContent = `Pomodoros completed - Today: ${this.pomodoroCount} | Lifetime: ${this.lifetimePomodoroCount}`;
                 
                 const phaseIndicator = document.getElementById('phaseIndicator');
                 const progressFill = document.getElementById('progressFill');
@@ -424,6 +468,7 @@
                 
                 if (this.currentPhase === 'work') {
                     this.pomodoroCount++;
+                    this.lifetimePomodoroCount++;
                     this.cycleCount++;
                     
                     if (this.cycleCount % 4 === 0) {
@@ -471,6 +516,10 @@
             }
             
             showPhaseCompleteNotification() {
+                if (!this.notificationsEnabled) {
+                    return;
+                }
+                
                 const messages = {
                     'work': 'Work session complete! Time for a break.',
                     'shortbreak': 'Break time over! Ready for another work session?',
@@ -492,10 +541,6 @@
         }
         
         const timer = new PomodoroTimer();
-        
-        if (Notification && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
         
         function startTimer() {
             timer.start();
