@@ -261,6 +261,10 @@
                 <input type="number" id="longBreakDuration" min="1" max="60" value="15">
             </div>
             <div class="setting-group">
+                <label for="roundsBeforeLongBreak">Rounds before Long Break:</label>
+                <input type="number" id="roundsBeforeLongBreak" min="1" max="10" value="4">
+            </div>
+            <div class="setting-group">
                 <label for="enableNotifications">Enable Notifications:</label>
                 <input type="checkbox" id="enableNotifications" checked>
             </div>
@@ -276,9 +280,12 @@
                 this.pomodoroCount = 0;
                 this.lifetimePomodoroCount = 0;
                 this.cycleCount = 0;
+                this.completedLongBreakCycles = 0;
                 this.timeLeft = 0;
                 this.totalTime = 0;
                 this.interval = null;
+                this.startTime = null;
+                this.pausedTime = 0;
                 
                 this.loadSettings();
                 this.updateDisplay();
@@ -290,14 +297,17 @@
                 this.workDuration = settings.workDuration || 25;
                 this.shortBreakDuration = settings.shortBreakDuration || 5;
                 this.longBreakDuration = settings.longBreakDuration || 15;
+                this.roundsBeforeLongBreak = settings.roundsBeforeLongBreak || 4;
                 this.pomodoroCount = settings.pomodoroCount || 0;
                 this.lifetimePomodoroCount = settings.lifetimePomodoroCount || 0;
+                this.completedLongBreakCycles = settings.completedLongBreakCycles || 0;
                 this.notificationsEnabled = settings.notificationsEnabled !== undefined ? settings.notificationsEnabled : true;
                 this.lastResetDate = settings.lastResetDate || '';
                 
                 document.getElementById('workDuration').value = this.workDuration;
                 document.getElementById('shortBreakDuration').value = this.shortBreakDuration;
                 document.getElementById('longBreakDuration').value = this.longBreakDuration;
+                document.getElementById('roundsBeforeLongBreak').value = this.roundsBeforeLongBreak;
                 document.getElementById('enableNotifications').checked = this.notificationsEnabled;
                 
                 this.checkAndResetDailyCounter();
@@ -309,8 +319,10 @@
                     workDuration: this.workDuration,
                     shortBreakDuration: this.shortBreakDuration,
                     longBreakDuration: this.longBreakDuration,
+                    roundsBeforeLongBreak: this.roundsBeforeLongBreak,
                     pomodoroCount: this.pomodoroCount,
                     lifetimePomodoroCount: this.lifetimePomodoroCount,
+                    completedLongBreakCycles: this.completedLongBreakCycles,
                     notificationsEnabled: this.notificationsEnabled,
                     lastResetDate: this.lastResetDate
                 };
@@ -326,7 +338,12 @@
                         if (!this.isRunning) {
                             this.resetToWorkPhase();
                         }
+                        this.updateDisplay();
                     });
+                });
+                
+                document.getElementById('roundsBeforeLongBreak').addEventListener('change', (e) => {
+                    this.handleRoundsChange(parseInt(e.target.value));
                 });
                 
                 document.getElementById('enableNotifications').addEventListener('change', (e) => {
@@ -354,6 +371,25 @@
                 }
             }
             
+            handleRoundsChange(newRounds) {
+                const oldRounds = this.roundsBeforeLongBreak;
+                const currentRoundInCycle = this.cycleCount % oldRounds;
+                
+                if (newRounds > oldRounds) {
+                    this.roundsBeforeLongBreak = newRounds;
+                } else if (newRounds < oldRounds) {
+                    this.roundsBeforeLongBreak = newRounds;
+                    const additionalCompletedCycles = Math.floor(currentRoundInCycle / newRounds);
+                    this.completedLongBreakCycles += additionalCompletedCycles;
+                    this.cycleCount = currentRoundInCycle % newRounds + (this.completedLongBreakCycles * newRounds);
+                } else {
+                    this.roundsBeforeLongBreak = newRounds;
+                }
+                
+                this.saveSettings();
+                this.updateDisplay();
+            }
+            
             resetToWorkPhase() {
                 this.currentPhase = 'work';
                 this.timeLeft = this.workDuration * 60;
@@ -378,7 +414,13 @@
                 const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
                 
                 document.getElementById('timerDisplay').textContent = timeString;
-                document.getElementById('pomodoroCount').textContent = `Pomodoros completed - Today: ${this.pomodoroCount} | Lifetime: ${this.lifetimePomodoroCount}`;
+                
+                const currentRound = (this.cycleCount % this.roundsBeforeLongBreak) + 1;
+                const progressText = this.currentPhase === 'work' ? 
+                    `Progress towards long break: ${currentRound} of ${this.roundsBeforeLongBreak} | Today: ${this.pomodoroCount} | Lifetime: ${this.lifetimePomodoroCount}` :
+                    `Pomodoros completed - Today: ${this.pomodoroCount} | Lifetime: ${this.lifetimePomodoroCount}`;
+                
+                document.getElementById('pomodoroCount').textContent = progressText;
                 
                 const phaseIndicator = document.getElementById('phaseIndicator');
                 const progressFill = document.getElementById('progressFill');
@@ -428,8 +470,15 @@
                 this.isRunning = true;
                 this.isPaused = false;
                 
+                if (this.startTime === null) {
+                    this.startTime = Date.now();
+                } else {
+                    this.startTime = Date.now() - this.pausedTime;
+                }
+                
                 this.interval = setInterval(() => {
-                    this.timeLeft--;
+                    const elapsed = Date.now() - this.startTime;
+                    this.timeLeft = Math.max(0, this.totalTime - Math.floor(elapsed / 1000));
                     this.updateDisplay();
                     
                     if (this.timeLeft <= 0) {
@@ -443,6 +492,7 @@
             pause() {
                 this.isPaused = true;
                 clearInterval(this.interval);
+                this.pausedTime = Date.now() - this.startTime;
                 this.updateButtonStates();
             }
             
@@ -450,6 +500,8 @@
                 this.isRunning = false;
                 this.isPaused = false;
                 clearInterval(this.interval);
+                this.startTime = null;
+                this.pausedTime = 0;
                 this.resetToWorkPhase();
                 this.updateButtonStates();
             }
@@ -458,12 +510,15 @@
                 this.stop();
                 this.pomodoroCount = 0;
                 this.cycleCount = 0;
+                this.completedLongBreakCycles = 0;
                 this.saveSettings();
                 this.updateDisplay();
             }
             
             completePhase() {
                 clearInterval(this.interval);
+                this.startTime = null;
+                this.pausedTime = 0;
                 this.playNotification();
                 
                 if (this.currentPhase === 'work') {
@@ -471,7 +526,7 @@
                     this.lifetimePomodoroCount++;
                     this.cycleCount++;
                     
-                    if (this.cycleCount % 4 === 0) {
+                    if (this.cycleCount % this.roundsBeforeLongBreak === 0) {
                         this.currentPhase = 'longbreak';
                         this.timeLeft = this.longBreakDuration * 60;
                     } else {
@@ -527,7 +582,7 @@
                 };
                 
                 const previousPhase = this.currentPhase === 'work' ? 
-                    (this.cycleCount % 4 === 0 ? 'longbreak' : 'shortbreak') : 'work';
+                    (this.cycleCount % this.roundsBeforeLongBreak === 0 ? 'longbreak' : 'shortbreak') : 'work';
                 
                 if (Notification && Notification.permission === 'granted') {
                     new Notification('Pomodoro Timer', {
