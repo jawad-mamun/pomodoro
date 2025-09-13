@@ -14,7 +14,7 @@ This technique helps maintain focus, prevent burnout, and boost productivity.
 ## How to Use
 
 ### Quick Start (2 steps):
-1. **Double-click** the `index.html` file
+1. **Double-click** the `pomodoro.html` file
 2. The timer will open in Safari - click **Start** to begin!
 
 ### Optional: Add to Dock (macOS Sonoma or later):
